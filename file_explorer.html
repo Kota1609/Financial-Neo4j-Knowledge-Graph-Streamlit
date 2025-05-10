@@ -1,0 +1,243 @@
+<!--
+Machine-Coding Interview: Front-End File Explorer
+=================================================
+
+Approach Options Discussed (pick what suits interview time-box):
+1. Vanilla JS + DOM (chosen) – zero setup, quick to demo.
+2. React – stateful & modular but adds boilerplate.
+3. Vue / Svelte – similar to React with own syntax.
+4. Web Components – standards-based but verbose for 30-min sprint.
+5. jQuery – legacy; simpler DOM API but outdated.
+
+Picked #1 (Vanilla JS) for minimal dependencies & fastest implementation.
+
+Use-Cases Covered
+-----------------
+UC-1  Render root folder tree collapsed by default.
+UC-2  Click a folder toggles expansion / collapse of its children.
+UC-3  Clicking a file is a no-op (can be extended to open preview).
+UC-4  Provide a search input: type file/folder name, press Enter or Search → highlight matches.
+UC-5  On successful match, auto-expand ancestor folders so highlighted items are visible.
+UC-6  If no match found, show unobtrusive message (toast-like) for 2 s.
+UC-7  Multiple matches allowed – highlight all.
+
+Complexity & Extensibility
+--------------------------
+[3mRender[23m: O(total nodes).
+[3mSearch[23m: O(total nodes) – single DFS traversal.
+Can plug real API / lazy-load nodes by replacing `fileTree` & `renderTree`.
+
+------------------------------------------------------------------------ -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple File Explorer</title>
+  <style>
+    :root {
+      --folder-color: #1e88e5;
+      --file-color: #555;
+      --highlight-bg: #ffeb3b;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    #searchBar {
+      margin-bottom: 16px;
+    }
+
+    #searchInput {
+      padding: 6px 8px;
+      width: 220px;
+      font-size: 14px;
+    }
+
+    #searchBtn {
+      padding: 6px 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    ul.tree {
+      list-style: none;
+      padding-left: 18px; /* indent for nested lists */
+    }
+
+    .folder > span {
+      color: var(--folder-color);
+      cursor: pointer;
+    }
+
+    .file > span {
+      color: var(--file-color);
+    }
+
+    .collapsed > ul {
+      display: none;
+    }
+
+    .highlight {
+      background-color: var(--highlight-bg);
+      font-weight: bold;
+    }
+
+    /* tiny toast */
+    #toast {
+      visibility: hidden;
+      min-width: 160px;
+      background-color: #333;
+      color: #fff;
+      text-align: center;
+      border-radius: 4px;
+      padding: 8px;
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1;
+    }
+
+    #toast.show {
+      visibility: visible;
+      animation: fadein 0.3s, fadeout 0.3s 1.7s;
+    }
+
+    @keyframes fadein { from { opacity: 0;} to { opacity: 1;} }
+    @keyframes fadeout { from { opacity: 1;} to { opacity: 0; } }
+  </style>
+</head>
+<body>
+  <h2>📁 Mini File Explorer</h2>
+
+  <div id="searchBar">
+    <input id="searchInput" placeholder="Search file / folder" />
+    <button id="searchBtn">Search</button>
+  </div>
+
+  <div id="explorerRoot"></div>
+
+  <div id="toast">File not found</div>
+
+  <script>
+    /* ---------- 1. Sample Data ---------- */
+    const fileTree = {
+      name: 'root',
+      type: 'folder',
+      children: [
+        {
+          name: 'src',
+          type: 'folder',
+          children: [
+            { name: 'index.js', type: 'file' },
+            { name: 'App.js', type: 'file' },
+            {
+              name: 'components',
+              type: 'folder',
+              children: [
+                { name: 'Header.js', type: 'file' },
+                { name: 'Footer.js', type: 'file' },
+              ],
+            },
+          ],
+        },
+        {
+          name: 'public',
+          type: 'folder',
+          children: [
+            { name: 'index.html', type: 'file' },
+          ],
+        },
+        { name: 'package.json', type: 'file' },
+        { name: 'README.md', type: 'file' },
+      ],
+    };
+
+    /* ---------- 2. DOM Helpers ---------- */
+    const createNode = (tag, className, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text) el.textContent = text;
+      return el;
+    };
+
+    /* ---------- 3. Tree Rendering ---------- */
+    function renderTree(node) {
+      const li = createNode('li', node.type);
+      const label = createNode('span', null, node.name);
+      li.appendChild(label);
+
+      if (node.type === 'folder') {
+        li.classList.add('collapsed'); // start collapsed
+        label.addEventListener('click', () => li.classList.toggle('collapsed'));
+        const ul = createNode('ul', 'tree');
+        node.children.forEach(child => ul.appendChild(renderTree(child)));
+        li.appendChild(ul);
+      }
+      return li;
+    }
+
+    const rootContainer = document.getElementById('explorerRoot');
+    const rootUl = createNode('ul', 'tree');
+    rootUl.appendChild(renderTree(fileTree));
+    rootContainer.appendChild(rootUl);
+
+    /* ---------- 4. Search Logic ---------- */
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+
+    function clearHighlights() {
+      document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function dfsHighlight(li, query, foundRef) {
+      const label = li.firstChild; // span
+      const name = label.textContent.toLowerCase();
+      const matches = name.includes(query);
+
+      if (matches) {
+        label.classList.add('highlight');
+        foundRef.found = true;
+        // ensure all ancestor folders are expanded
+        let parent = li.parentElement;
+        while (parent && parent !== rootUl) {
+          if (parent.tagName === 'LI' && parent.classList.contains('collapsed')) {
+            parent.classList.remove('collapsed');
+          }
+          parent = parent.parentElement;
+        }
+      }
+
+      // Recurse into children UL if present
+      const ul = li.querySelector(':scope > ul');
+      if (ul) {
+        [...ul.children].forEach(childLi => dfsHighlight(childLi, query, foundRef));
+      }
+    }
+
+    function performSearch() {
+      const query = searchInput.value.trim().toLowerCase();
+      clearHighlights();
+      if (!query) return;
+
+      const foundRef = { found: false };
+      dfsHighlight(rootUl.firstChild, query, foundRef);
+      if (!foundRef.found) showToast('File not found');
+    }
+
+    searchBtn.addEventListener('click', performSearch);
+    searchInput.addEventListener('keyup', e => {
+      if (e.key === 'Enter') performSearch();
+    });
+  </script>
+</body>
+</html> 
